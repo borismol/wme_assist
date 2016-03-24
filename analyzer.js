@@ -192,7 +192,6 @@ WME_Assist.Analyzer = function (wazeapi) {
             var geometry = gj.parseGeometry(obj.geometry);
             var objCenter = geometry.getBounds().getCenterLonLat().transform(wazeapi.controller.segmentProjection, wazeapi.map.getProjectionObject());
             var boundsCenter = bounds.clone().getCenterLonLat().transform(wazeapi.controller.segmentProjection, wazeapi.map.getProjectionObject());
-            obj.center = objCenter;
 
             problems.push({
                 object: obj,
@@ -206,7 +205,7 @@ WME_Assist.Analyzer = function (wazeapi) {
                 experimental: false,
             });
 
-            onProblemDetected(obj, title, reason);
+            onProblemDetected(obj, title, reason, objCenter);
         }
     }
 

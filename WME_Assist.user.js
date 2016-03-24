@@ -50,7 +50,7 @@ WME_Assist.series = function (array, start, action, alldone) {
 }
 
 function run_wme_assist() {
-    var ver = '0.5.1';
+    var ver = '0.5.99';
 
     var debug = WME_Assist.debug;
     var info = WME_Assist.info;
@@ -665,30 +665,6 @@ function run_wme_assist() {
             ui = u;
         }
 
-        this.Select = function (id, type, center, zoom) {
-            var attemptNum = 10;
-
-            var select = function () {
-                info('select: ' + id);
-
-                var obj = type2repo(type).objects[id];
-
-                wazeapi.model.events.unregister('mergeend', map, select);
-
-                if (obj) {
-                    wazeapi.selectionManager.select([obj]);
-                } else if (--attemptNum > 0) {
-                    wazeapi.model.events.register('mergeend', map, select);
-                }
-
-                WME_Assist.debug("Attempt number left: " + attemptNum);
-
-                wazeapi.map.setCenter(center, zoom);
-            }
-
-            return select;
-        }
-
         this.isObjectVisible = function (obj) {
             if (!onlyVisible) return true;
             if (obj.geometry)
@@ -1184,8 +1160,30 @@ function run_wme_assist() {
         var scanForZoom = function (zoom) {
             scaner.scan(wazeapi.map.calculateBounds(), zoom, function (bounds, zoom, data) {
                 console.log(data);
-                analyzer.analyze(bounds, zoom, data, function (obj, title, reason) {
-                    ui.addProblem(obj.id, title, action.Select(obj.id, obj.type, obj.center, zoom), function () {
+                analyzer.analyze(bounds, zoom, data, function (obj, title, reason, position) {
+                    ui.addProblem(obj.id, title, function () {
+                        var attemptNum = 10;
+
+                        var select = function () {
+                            info('select: ' + obj.id);
+
+                            var objR = wazeapi.model[obj.type + 's'].objects[obj.id];
+
+                            wazeapi.model.events.unregister('mergeend', map, select);
+
+                            if (objR) {
+                                wazeapi.selectionManager.select([objR]);
+                            } else if (--attemptNum > 0) {
+                                wazeapi.model.events.register('mergeend', map, select);
+                            }
+
+                            WME_Assist.debug("Attempt number left: " + attemptNum);
+
+                            wazeapi.map.setCenter(position, zoom);
+                        }
+
+                        select();
+                    }, function () {
                         analyzer.addException(reason, function (id) {
                             ui.removeError(id);
                             ui.setUnresolvedErrorNum(analyzer.unresolvedErrorNum());
