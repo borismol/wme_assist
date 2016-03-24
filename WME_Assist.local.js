@@ -15,5 +15,5 @@
 // @include   https://editor-beta.waze.com/*
 // @include   https://*.waze.com/editor/editor/*
 // @include   https://*.waze.com/*/editor/*
-// @version   0.4.7
+// @version   0.5.99
 // ==/UserScript==

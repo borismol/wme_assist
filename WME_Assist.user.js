@@ -8,13 +8,13 @@
 // @match     https://world.waze.com/map-editor/*
 // @match     https://world.waze.com/beta_editor/*
 // @match     https://www.waze.com/map-editor/*
-// @require   https://greasyfork.org/scripts/18134-wme-assist-scanner/code/WME_Assist_Scanner.js?version=114404
-// @require   https://greasyfork.org/scripts/18135-wme-assist-analyzer/code/WME_Assist_Analyzer.js?version=114406
+// @require   https://github.com/borman84/wme_assist/raw/develop/scaner.js
+// @require   https://github.com/borman84/wme_assist/raw/develop/analyzer.js
 // @grant     none
 // @include   https://editor-beta.waze.com/*
 // @include   https://*.waze.com/editor/editor/*
 // @include   https://*.waze.com/*/editor/*
-// @version   0.5.1
+// @version   0.5.99
 // @namespace https://greasyfork.org/users/20609
 // ==/UserScript==
 
