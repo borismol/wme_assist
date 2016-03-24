@@ -19,6 +19,137 @@
 var WME_Assist = WME_Assist || {}
 
 WME_Assist.Analyzer = function (wazeapi) {
+    var ActionHelper = function (wazeapi) {
+        var WazeActionUpdateObject = require("Waze/Action/UpdateObject");
+        var WazeActionAddOrGetStreet = require("Waze/Action/AddOrGetStreet");
+        var WazeActionAddOrGetCity = require("Waze/Action/AddOrGetCity");
+
+        var type2repo = function (type) {
+            var map = {
+                'venue': wazeapi.model.venues,
+                'segment': wazeapi.model.segments
+            };
+            return map[type];
+        }
+
+        this.isObjectVisible = function (obj) {
+            if (!onlyVisible) return true;
+            if (obj.geometry)
+                return wazeapi.map.getExtent().intersectsBounds(obj.geometry.getBounds());
+            return false;
+        }
+
+        var addOrGetStreet = function (cityId, name, isEmpty) {
+            var foundStreets = wazeapi.model.streets.getByAttributes({
+                cityID: cityId,
+                name: name,
+            });
+
+            if (foundStreets.length == 1)
+                return foundStreets[0];
+
+            var city = wazeapi.model.cities.objects[cityId];
+            var a = new WazeActionAddOrGetStreet(name, city, isEmpty);
+            wazeapi.model.actionManager.add(a);
+
+            return a.street;
+        }
+
+        var addOrGetCity = function (countryID, stateID, cityName) {
+            var foundCities = Waze.model.cities.getByAttributes({
+                countryID: countryID,
+                stateID: stateID,
+                name : cityName
+            });
+
+            if (foundCities.length == 1)
+                return foundCities[0];
+
+            var state = Waze.model.states.objects[stateID];
+            var country = Waze.model.countries.objects[countryID];
+            var a = new WazeActionAddOrGetCity(state, country, cityName);
+            Waze.model.actionManager.add(a);
+            return a.city;
+        }
+
+        var cityMap = {};
+        var onlyVisible = false;
+
+        this.newCityID = function (id) {
+            var newid = cityMap[id];
+            if (newid) return newid;
+            return id;
+        }
+
+        this.renameCity = function (oldname, newname) {
+            var oldcity = wazeapi.model.cities.getByAttributes({name: oldname});
+
+            if (oldcity.length == 0) {
+                console.log('City not found: ' + oldname);
+                return false;
+            }
+
+            var city = oldcity[0];
+            var newcity = addOrGetCity(city.countryID, city.stateID, newname);
+
+            cityMap[city.getID()] = newcity.getID();
+            onlyVisible = true;
+
+            console.log('Do not forget press reset button and re-enable script');
+            return true;
+        }
+
+        var onIssueResolved = function () {}
+        var onUserIssueFixed = function () {}
+        var onIssueFixFailed = function () {}
+
+        this.onIssueResolved = function (cb) {
+            onIssueResolved = cb;
+        }
+
+        this.onUserIssueFixed = function (cb) {
+            onUserIssueFixed = cb;
+        }
+
+        this.onIssueFixFailed = function (cb) {
+            onIssueFixFailed = cb;
+        }
+
+        this.fixProblem = function (problem) {
+            var attemptNum = 10; // after that we decide that object was removed
+
+            var fix = function () {
+                var obj = type2repo(problem.object.type).objects[problem.object.id];
+                wazeapi.model.events.unregister('mergeend', map, fix);
+
+                if (obj) {
+                    // protect user manual fix
+                    var currentValue = wazeapi.model.streets.objects[obj.attributes[problem.attrName]].name;
+                    if (problem.reason == currentValue) {
+                        var correctStreet = addOrGetStreet(problem.cityId, problem.newStreetName, problem.isEmpty);
+                        var request = {};
+                        request[problem.attrName] = correctStreet.getID();
+                        wazeapi.model.actionManager.add(new WazeActionUpdateObject(obj, request));
+                    } else {
+                        onUserIssueFixed(problem.object.id, currentValue);
+                    }
+
+                    onIssueResolved(problem.object.id);
+                } else if (--attemptNum <= 0) {
+                    onIssueFixFailed(problem.object.id);
+                    onIssueResolved(problem.object.id);
+                } else {
+                    wazeapi.model.events.register('mergeend', map, fix);
+                    wazeapi.map.setCenter(problem.detectPos, problem.zoom);
+                }
+
+                WME_Assist.debug('Attempt number left: ' + attemptNum);
+            }
+
+            fix();
+        }
+    }
+
     var Exceptions = function () {
         var exceptions = [];
 
@@ -71,8 +202,8 @@ WME_Assist.Analyzer = function (wazeapi) {
     var skippedErrors = 0;
     var variant;
     var exceptions = new Exceptions();
+    var action = new ActionHelper(wazeapi);
     var rules;
-    var action;
 
     var getUnresolvedErrorNum = function () {
         return problems.length - unresolvedIdx - skippedErrors;
@@ -89,8 +220,18 @@ WME_Assist.Analyzer = function (wazeapi) {
         rules = r;
     }
 
-    this.setActionHelper = function (a) {
-        action = a;
+    var onIssueResolved = function () {}
+
+    this.onIssueResolved = function (cb) {
+        onIssueResolved = cb;
+    }
+
+    this.onUserIssueFixed = function (cb) {
+        action.onUserIssueFixed = cb;
+    }
+
+    this.onIssueFixFailed = function (cb) {
+        action.onIssueFixFailed = cb;
     }
 
     this.loadExceptions = function () {
@@ -135,20 +276,22 @@ WME_Assist.Analyzer = function (wazeapi) {
         skippedErrors = 0;
     }
 
-    this.fixAll = function (onefixed, allfixed) {
+    this.fixAll = function (onAllIssuesFixed) {
         WME_Assist.series(problems, unresolvedIdx, function (p, next) {
             if (p.skip) {
                 next();
                 return;
             }
 
-            action.fixProblem(p).done(function (id) {
+            action.onIssueResolved(function (id) {
                 ++unresolvedIdx;
-                onefixed(id);
+                onIssueResolved(id);
 
                 setTimeout(next, 0);
             });
-        }, allfixed);
+
+            action.fixProblem(p);
+        }, onAllIssuesFixed);
     }
 
     var checkStreet = function (bounds, zoom, streets, streetID, obj, attrName, onProblemDetected) {

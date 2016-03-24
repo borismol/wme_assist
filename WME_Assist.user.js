@@ -646,129 +646,6 @@ function run_wme_assist() {
         }
     }
 
-    var ActionHelper = function (wazeapi) {
-        var WazeActionUpdateObject = require("Waze/Action/UpdateObject");
-        var WazeActionAddOrGetStreet = require("Waze/Action/AddOrGetStreet");
-        var WazeActionAddOrGetCity = require("Waze/Action/AddOrGetCity");
-
-        var ui;
-
-        var type2repo = function (type) {
-            var map = {
-                'venue': wazeapi.model.venues,
-                'segment': wazeapi.model.segments
-            };
-            return map[type];
-        }
-
-        this.setUi = function (u) {
-            ui = u;
-        }
-
-        this.isObjectVisible = function (obj) {
-            if (!onlyVisible) return true;
-            if (obj.geometry)
-                return wazeapi.map.getExtent().intersectsBounds(obj.geometry.getBounds());
-            return false;
-        }
-
-        var addOrGetStreet = function (cityId, name, isEmpty) {
-            var foundStreets = wazeapi.model.streets.getByAttributes({
-                cityID: cityId,
-                name: name,
-            });
-
-            if (foundStreets.length == 1)
-                return foundStreets[0];
-
-            var city = wazeapi.model.cities.objects[cityId];
-            var a = new WazeActionAddOrGetStreet(name, city, isEmpty);
-            wazeapi.model.actionManager.add(a);
-
-            return a.street;
-        }
-
-        var addOrGetCity = function (countryID, stateID, cityName) {
-            var foundCities = Waze.model.cities.getByAttributes({
-                countryID: countryID,
-                stateID: stateID,
-                name : cityName
-            });
-
-            if (foundCities.length == 1)
-                return foundCities[0];
-
-            var state = Waze.model.states.objects[stateID];
-            var country = Waze.model.countries.objects[countryID];
-            var a = new WazeActionAddOrGetCity(state, country, cityName);
-            Waze.model.actionManager.add(a);
-            return a.city;
-        }
-
-        var cityMap = {};
-        var onlyVisible = false;
-
-        this.newCityID = function (id) {
-            var newid = cityMap[id];
-            if (newid) return newid;
-            return id;
-        }
-
-        this.renameCity = function (oldname, newname) {
-            var oldcity = wazeapi.model.cities.getByAttributes({name: oldname});
-
-            if (oldcity.length == 0) {
-                console.log('City not found: ' + oldname);
-                return false;
-            }
-
-            var city = oldcity[0];
-            var newcity = addOrGetCity(city.countryID, city.stateID, newname);
-
-            cityMap[city.getID()] = newcity.getID();
-            onlyVisible = true;
-
-            console.log('Do not forget press reset button and re-enable script');
-            return true;
-        }
-
-        this.fixProblem = function (problem) {
-            var deferred = $.Deferred();
-            var attemptNum = 10; // after that we decide that object was removed
-
-            var fix = function () {
-                var obj = type2repo(problem.object.type).objects[problem.object.id];
-                wazeapi.model.events.unregister('mergeend', map, fix);
-
-                if (obj) {
-                    // protect user manual fix
-                    var currentValue = wazeapi.model.streets.objects[obj.attributes[problem.attrName]].name;
-                    if (problem.reason == currentValue) {
-                        var correctStreet = addOrGetStreet(problem.cityId, problem.newStreetName, problem.isEmpty);
-                        var request = {};
-                        request[problem.attrName] = correctStreet.getID();
-                        wazeapi.model.actionManager.add(new WazeActionUpdateObject(obj, request));
-                    } else {
-                        ui.updateProblem(problem.object.id, '(user fix: ' + currentValue + ')');
-                    }
-                    deferred.resolve(obj.getID());
-                } else if (--attemptNum <= 0) {
-                    ui.updateProblem(problem.object.id, '(was not fixed. Deleted?)');
-                    deferred.resolve(problem.object.id);
-                } else {
-                    wazeapi.model.events.register('mergeend', map, fix);
-                    wazeapi.map.setCenter(problem.detectPos, problem.zoom);
-                }
-
-                WME_Assist.debug('Attempt number left: ' + attemptNum);
-            }
-
-            fix();
-
-            return deferred.promise();
-        }
-    }
-
     var Ui = function () {
         var addon = document.createElement('section');
         addon.innerHTML = '<b>WME Assist</b> v' + ver;
@@ -1213,14 +1090,24 @@ function run_wme_assist() {
 
         var country = countryName();
 
-        var action = new ActionHelper(wazeapi);
         var rules = new Rules(country);
         var ui = new Ui();
 
         analyzer.setRules(rules);
-        analyzer.setActionHelper(action);
 
-        action.setUi(ui);
+        analyzer.onIssueResolved(function (id) {
+            ui.setUnresolvedErrorNum(analyzer.unresolvedErrorNum());
+            ui.setFixedErrorNum(analyzer.fixedErrorNum());
+            ui.moveToFixedList(id);
+        });
+
+        analyzer.onUserIssueFixed(function (id, value) {
+            ui.updateProblem(id, '(user fix: ' + value + ')');
+        });
+
+        analyzer.onIssueFixFailed(function (id) {
+            ui.updateProblem(id, '(was not fixed. Deleted?)');
+        });
 
         analyzer.onExceptionAdd(function (name) {
             ui.addException(name, function (index) {
@@ -1304,11 +1191,7 @@ function run_wme_assist() {
                 wazeapi.model.events.unregister('mergeend', map, scan);
 
                 setTimeout(function () {
-                    analyzer.fixAll(function (id) {
-                        ui.setUnresolvedErrorNum(analyzer.unresolvedErrorNum());
-                        ui.setFixedErrorNum(analyzer.fixedErrorNum());
-                        ui.moveToFixedList(id);
-                    }, function () {
+                    analyzer.fixAll(function () {
                         ui.fixallBtn().show();
                         ui.clearfixedBtn().show();
                         ui.scanAreaBtn().show();
@@ -1369,7 +1252,7 @@ function run_wme_assist() {
             window.assist = this;
         }
 
-        this.renameCity = action.renameCity;
+//        this.renameCity = action.renameCity;
     };
 
     function waitForWaze(done) {
