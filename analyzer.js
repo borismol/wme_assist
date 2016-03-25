@@ -196,7 +196,7 @@ WME_Assist.Analyzer = function (wazeapi) {
         this.onDelete = function (cb) {onDelete = cb }
     }
 
-    var analyzedIds = [];
+    var analyzedIds = {};
     var problems = [];
     var unresolvedIdx = 0;
     var skippedErrors = 0;
@@ -270,7 +270,7 @@ WME_Assist.Analyzer = function (wazeapi) {
     }
 
     this.reset = function () {
-        analyzedIds = [];
+        analyzedIds = {};
         problems = [];
         unresolvedIdx = 0;
         skippedErrors = 0;
@@ -352,6 +352,24 @@ WME_Assist.Analyzer = function (wazeapi) {
         }
     }
 
+    var alreadyChecked = function (id, attr) {
+        var obj = analyzedIds[id];
+        if (!obj) return false;
+        if (!obj[attr]) return false;
+        return true;
+    }
+
+    var markChecked = function (id, attr) {
+        var obj = analyzedIds[id];
+        if (obj) {
+            obj[attr] = true;
+        } else {
+            obj = {}
+            obj[attr] = true;
+            analyzedIds[id] = obj;
+        }
+    }
+
     this.analyze = function (bounds, zoom, data, onProblemDetected) {
         var permissions = new require("Waze/Permissions");
         var startTime = new Date().getTime();
@@ -360,12 +378,12 @@ WME_Assist.Analyzer = function (wazeapi) {
 
         var subjects = {
             'segment': {
-                attr: 'primaryStreetID',
+                attributes: [ 'primaryStreetID' ],
                 name: 'segments',
                 permissions: permissions.Segments,
             },
             'venue': {
-                attr: 'streetID',
+                attributes: [ 'streetID', 'name' ],
                 name: 'venues',
                 permissions: permissions.Landmarks,
             }
@@ -385,21 +403,27 @@ WME_Assist.Analyzer = function (wazeapi) {
 
                 obj.type = k;
 
-                if (analyzedIds.indexOf(id) >= 0) continue;
+                for (var n = 0; n < subject.attributes.length; ++n) {
+                    var attr = subject.attributes[n];
 
-                if (!(obj.permissions & subject.permissions.EDIT_PROPERTIES)) continue;
-                if (obj.hasClosures) continue;
+                    if (alreadyChecked(id, attr)) continue;
 
-                if (typeof obj.approved != 'undefined' && !obj.approved) continue;
+                    if (!(obj.permissions & subject.permissions.EDIT_PROPERTIES)) continue;
+                    if (obj.hasClosures) continue;
 
-                var streetID = obj[subject.attr];
-                var streetDict = data.streets.objects.reduce(function (dict, street, i) {
-                    dict[street.id] = street;
-                    return dict;
-                }, {});
-                checkStreet(bounds, zoom, streetDict, streetID, obj, subject.attr, onProblemDetected);
+                    if (typeof obj.approved != 'undefined' && !obj.approved) continue;
 
-                analyzedIds.push(id);
+                    if (attr == 'streetID' || attr == 'primaryStreetID') {
+                        var streetID = obj[attr];
+                        var streetDict = data.streets.objects.reduce(function (dict, street, i) {
+                            dict[street.id] = street;
+                            return dict;
+                        }, {});
+                        checkStreet(bounds, zoom, streetDict, streetID, obj, attr, onProblemDetected);
+                    }
+
+                    markChecked(id, attr);
+                }
             }
         }
 
