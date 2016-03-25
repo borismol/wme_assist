@@ -294,7 +294,30 @@ WME_Assist.Analyzer = function (wazeapi) {
         }, onAllIssuesFixed);
     }
 
-    var checkStreet = function (bounds, zoom, streets, streetID, obj, attrName, onProblemDetected) {
+    var alreadyChecked = function (id, attr) {
+        var obj = analyzedIds[id];
+        if (!obj) return false;
+        if (!obj[attr]) return false;
+        return true;
+    }
+
+    var markChecked = function (id, attr) {
+        var obj = analyzedIds[id];
+        if (obj) {
+            obj[attr] = true;
+        } else {
+            obj = {}
+            obj[attr] = true;
+            analyzedIds[id] = obj;
+        }
+    }
+
+    var streetNameHandler = function (obj, attr, data, bounds, zoom, onProblemDetected) {
+        var streets = data.streets.objects.reduce(function (dict, street, i) {
+            dict[street.id] = street;
+            return dict;
+        }, {});
+        var streetID = obj[attr];
         var street = streets[streetID];
 
         if (!street) return;
@@ -339,7 +362,7 @@ WME_Assist.Analyzer = function (wazeapi) {
             problems.push({
                 object: obj,
                 reason: reason,
-                attrName: attrName,
+                attrName: attr,
                 detectPos: boundsCenter,
                 zoom: zoom,
                 newStreetName: newStreetName,
@@ -352,22 +375,8 @@ WME_Assist.Analyzer = function (wazeapi) {
         }
     }
 
-    var alreadyChecked = function (id, attr) {
-        var obj = analyzedIds[id];
-        if (!obj) return false;
-        if (!obj[attr]) return false;
-        return true;
-    }
-
-    var markChecked = function (id, attr) {
-        var obj = analyzedIds[id];
-        if (obj) {
-            obj[attr] = true;
-        } else {
-            obj = {}
-            obj[attr] = true;
-            analyzedIds[id] = obj;
-        }
+    var nameHandler = function () {
+        // TODO:
     }
 
     this.analyze = function (bounds, zoom, data, onProblemDetected) {
@@ -378,12 +387,17 @@ WME_Assist.Analyzer = function (wazeapi) {
 
         var subjects = {
             'segment': {
-                attributes: [ 'primaryStreetID' ],
+                attributes: {
+                    'primaryStreetID': streetNameHandler,
+                },
                 name: 'segments',
                 permissions: permissions.Segments,
             },
             'venue': {
-                attributes: [ 'streetID', 'name' ],
+                attributes: {
+                    'streetID': streetNameHandler,
+                    'name': nameHandler,
+                },
                 name: 'venues',
                 permissions: permissions.Landmarks,
             }
@@ -403,9 +417,7 @@ WME_Assist.Analyzer = function (wazeapi) {
 
                 obj.type = k;
 
-                for (var n = 0; n < subject.attributes.length; ++n) {
-                    var attr = subject.attributes[n];
-
+                for (var attr in subject.attributes) {
                     if (alreadyChecked(id, attr)) continue;
 
                     if (!(obj.permissions & subject.permissions.EDIT_PROPERTIES)) continue;
@@ -413,14 +425,7 @@ WME_Assist.Analyzer = function (wazeapi) {
 
                     if (typeof obj.approved != 'undefined' && !obj.approved) continue;
 
-                    if (attr == 'streetID' || attr == 'primaryStreetID') {
-                        var streetID = obj[attr];
-                        var streetDict = data.streets.objects.reduce(function (dict, street, i) {
-                            dict[street.id] = street;
-                            return dict;
-                        }, {});
-                        checkStreet(bounds, zoom, streetDict, streetID, obj, attr, onProblemDetected);
-                    }
+                    subject.attributes[attr](obj, attr, data, bounds, zoom, onProblemDetected);
 
                     markChecked(id, attr);
                 }
