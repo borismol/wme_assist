@@ -227,11 +227,11 @@ WME_Assist.Analyzer = function (wazeapi) {
     }
 
     this.onUserIssueFixed = function (cb) {
-        action.onUserIssueFixed = cb;
+        action.onUserIssueFixed(cb);
     }
 
     this.onIssueFixFailed = function (cb) {
-        action.onIssueFixFailed = cb;
+        action.onIssueFixFailed(cb);
     }
 
     this.loadExceptions = function () {
